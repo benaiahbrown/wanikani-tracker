@@ -1,0 +1,4 @@
+flask
+requests
+rich
+python-dotenv
