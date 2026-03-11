@@ -102,6 +102,36 @@ HTML_PAGE = r"""<!DOCTYPE html>
     margin-bottom: 12px;
   }
   .chart-card canvas { width: 100% !important; }
+  .sessions-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px 18px;
+    margin-top: 10px;
+    padding: 8px 4px 0;
+    border-top: 1px solid rgba(255,255,255,0.06);
+  }
+  .sessions-legend .leg-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: #ccc;
+  }
+  .sessions-legend .leg-line {
+    width: 20px;
+    height: 0;
+    border-top: 2px solid;
+    display: inline-block;
+  }
+  .sessions-legend .leg-line.dashed {
+    border-top-style: dashed;
+  }
+  .sessions-legend .leg-swatch {
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
+    display: inline-block;
+  }
   .level-up-panel {
     max-width: 1400px;
     margin: 0 auto 20px auto;
@@ -333,7 +363,7 @@ HTML_PAGE = r"""<!DOCTYPE html>
   <div class="chart-card"><h3>Pace: Days per Level</h3><canvas id="cohortPaceChart"></canvas></div>
   <div class="chart-card"><h3>Accuracy vs Community</h3><canvas id="cohortAccuracyChart"></canvas></div>
   <div class="chart-card"><h3>Items Learned Trajectory</h3><canvas id="cohortItemsChart"></canvas></div>
-  <div class="chart-card"><h3>Sessions per Day (Last 30 Days)</h3><canvas id="cohortSessionsChart"></canvas></div>
+  <div class="chart-card"><h3>Sessions per Day (Last 30 Days)</h3><canvas id="cohortSessionsChart"></canvas><div id="sessionsLegend" class="sessions-legend"></div></div>
   <div class="streak-card" id="streak-card">
     <h3>Study Streaks</h3>
     <div class="streak-stats" id="streak-stats"></div>
@@ -628,51 +658,56 @@ function loadCohortView(snaps) {
       type: 'bar',
       data: {
         labels: sessLabels,
-        datasets: [{
-          label: 'Sessions',
-          data: sessData,
-          backgroundColor: sessData.map(v =>
-            v >= COHORT.sessions.high ? '#4caf5099' :
-            v >= COHORT.sessions.median ? '#00bcd499' :
-            v > 0 ? '#ffc10799' : 'rgba(255,255,255,0.05)'
-          ),
-          borderRadius: 3,
-        }],
+        datasets: [
+          {
+            label: 'Sessions',
+            data: sessData,
+            backgroundColor: sessData.map(v =>
+              v >= COHORT.sessions.high ? '#4caf5099' :
+              v >= COHORT.sessions.median ? '#00bcd499' :
+              v > 0 ? '#ffc10799' : 'rgba(255,255,255,0.05)'
+            ),
+            borderRadius: 3,
+            order: 1,
+          },
+          {
+            label: 'Your Avg',
+            type: 'line',
+            data: sessLabels.map(() => userAvgSess),
+            borderColor: '#ffffffaa',
+            borderWidth: 2,
+            pointRadius: 0,
+            fill: false,
+            order: 0,
+          },
+          {
+            label: 'Median',
+            type: 'line',
+            data: sessLabels.map(() => COHORT.sessions.median),
+            borderColor: '#ffc107aa',
+            borderWidth: 2,
+            borderDash: [6, 3],
+            pointRadius: 0,
+            fill: false,
+            order: 0,
+          },
+          {
+            label: 'High',
+            type: 'line',
+            data: sessLabels.map(() => COHORT.sessions.high),
+            borderColor: '#4caf5088',
+            borderWidth: 1,
+            borderDash: [4, 4],
+            pointRadius: 0,
+            fill: false,
+            order: 0,
+          },
+        ],
       },
       options: {
         responsive: true,
         plugins: {
           legend: { display: false },
-          annotation: {
-            annotations: {
-              medianLine: {
-                type: 'line',
-                yMin: COHORT.sessions.median,
-                yMax: COHORT.sessions.median,
-                borderColor: '#ffc107aa',
-                borderWidth: 2,
-                borderDash: [6, 3],
-                label: { display: true, content: 'Median (' + COHORT.sessions.median + ')', position: 'end', yAdjust: -16, color: '#ffc107', font: { size: 13, weight: 'bold' }, backgroundColor: 'rgba(26,26,46,0.85)', padding: 6 },
-              },
-              highLine: {
-                type: 'line',
-                yMin: COHORT.sessions.high,
-                yMax: COHORT.sessions.high,
-                borderColor: '#4caf5088',
-                borderWidth: 1,
-                borderDash: [4, 4],
-                label: { display: true, content: 'High (' + COHORT.sessions.high + ')', position: 'center', yAdjust: -16, color: '#4caf50', font: { size: 13, weight: 'bold' }, backgroundColor: 'rgba(26,26,46,0.85)', padding: 6 },
-              },
-              userAvgLine: {
-                type: 'line',
-                yMin: userAvgSess,
-                yMax: userAvgSess,
-                borderColor: '#ffffffaa',
-                borderWidth: 2,
-                label: { display: true, content: 'Your Avg (' + userAvgSess.toFixed(1) + ')', position: 'start', yAdjust: -16, color: '#fff', font: { size: 13, weight: 'bold' }, backgroundColor: 'rgba(26,26,46,0.85)', padding: 6 },
-              },
-            },
-          },
         },
         scales: {
           x: { type: 'time', time: { unit: 'day', tooltipFormat: 'MMM d' }, ticks: { color: '#888', maxRotation: 45 }, grid: { display: false } },
@@ -680,6 +715,12 @@ function loadCohortView(snaps) {
         },
       },
     }));
+
+    // Build HTML legend
+    document.getElementById('sessionsLegend').innerHTML =
+      '<span class="leg-item"><span class="leg-line" style="border-color:#fff"></span> Your Avg (' + userAvgSess.toFixed(1) + ')</span>' +
+      '<span class="leg-item"><span class="leg-line dashed" style="border-color:#ffc107"></span> User Median (' + COHORT.sessions.median + ')</span>' +
+      '<span class="leg-item"><span class="leg-line dashed" style="border-color:#4caf50"></span> User High (' + COHORT.sessions.high + ')</span>';
   } else {
     sessCtx.parentElement.innerHTML = '<h3>Sessions per Day</h3><div class="cohort-no-data" style="padding:20px;"><p>No session data. Run <code>python3 wanikani_tracker.py</code> to collect.</p></div>';
   }

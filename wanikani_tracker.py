@@ -996,15 +996,7 @@ def main():
     subjects = fetch_subjects_kanji(refresh=args.refresh)
 
     today = datetime.date.today()
-    start_date = _parse_start_date()
-    if start_date is None:
-        # Derive from user's WaniKani start date
-        started_at = user.get("started_at") or user.get("current_vacation_started_at")
-        if started_at:
-            start_date = datetime.datetime.fromisoformat(
-                started_at.replace("Z", "+00:00")).date()
-        else:
-            start_date = today
+    start_date = datetime.date(2026, 2, 15)
     days_studied = (today - start_date).days
 
     console.print("Analyzing...")
