@@ -1,6 +1,10 @@
 # WaniKani Tracker & Dashboard
 
+**Who this is for:** WaniKani learners who want deeper progress analytics and N2/N1 forecasts than the default UI provides.
+
 A progress tracker and web dashboard for [WaniKani](https://www.wanikani.com/) that predicts your N2/N1 JLPT kanji completion dates.
+
+**Tech stack:** Python · Flask · Chart.js · WaniKani API v2 · Rich (terminal reports)
 
 **Tracker** — Fetches your WaniKani data, computes 7 analytics dimensions (SRS distribution, accuracy, pace, JLPT coverage, level-up estimates, JLPT predictions, session/streak tracking), and saves daily snapshots.
 
@@ -10,7 +14,7 @@ A progress tracker and web dashboard for [WaniKani](https://www.wanikani.com/) t
 
 ```bash
 # 1. Clone and install
-git clone https://github.com/YOUR_USERNAME/wanikani-tracker.git
+git clone https://github.com/benaiahbrown/wanikani-tracker.git
 cd wanikani-tracker
 pip install -r requirements.txt
 
@@ -43,6 +47,8 @@ Run the tracker regularly (daily is ideal) to build up snapshot history for the 
 See [README_wanikani_tracker.md](README_wanikani_tracker.md) for detailed formulas.
 
 ## Dashboard Views
+
+Designed to be run locally; no data is sent anywhere except WaniKani's API.
 
 ### Progress Tab
 - Level progress over time (with N2/N1 target lines)
