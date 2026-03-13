@@ -12,6 +12,7 @@ Usage:
 import argparse
 import json
 import os
+import subprocess
 
 from flask import Flask, jsonify
 
@@ -210,6 +211,41 @@ HTML_PAGE = r"""<!DOCTYPE html>
     max-width: 180px;
     max-height: 180px;
   }
+  .lu-schedule {
+    margin-top: 16px;
+    width: 100%;
+  }
+  .lu-schedule h4 {
+    font-size: 0.9em;
+    color: #bbb;
+    margin-bottom: 8px;
+  }
+  .lu-schedule table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.85em;
+  }
+  .lu-schedule th {
+    text-align: left;
+    color: #999;
+    font-weight: normal;
+    padding: 6px 10px;
+    border-bottom: 1px solid rgba(255,255,255,0.1);
+  }
+  .lu-schedule td {
+    padding: 6px 10px;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+    color: #ddd;
+  }
+  .lu-schedule tr:last-child td { border-bottom: none; }
+  .lu-schedule .today { color: #fff; font-weight: bold; }
+  .lu-schedule .stage-pill {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 0.8em;
+    margin: 1px 3px;
+  }
   .empty-state {
     text-align: center;
     padding: 80px 20px;
@@ -307,13 +343,48 @@ HTML_PAGE = r"""<!DOCTYPE html>
     color: #888;
     margin-top: 4px;
   }
+  .refresh-btn {
+    background: rgba(233,69,96,0.15);
+    border: 1px solid #e94560;
+    color: #fff;
+    padding: 8px 20px;
+    border-radius: 20px;
+    font-size: 0.85em;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .refresh-btn:hover { background: rgba(233,69,96,0.3); }
+  .refresh-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .refresh-btn .spinner {
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    border: 2px solid rgba(255,255,255,0.3);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .header-row {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 8px;
+  }
   @media (max-width: 900px) {
     .chart-grid { grid-template-columns: 1fr; }
   }
 </style>
 </head>
 <body>
-<h1>WaniKani Progress Dashboard</h1>
+<div class="header-row">
+  <h1>WaniKani Progress Dashboard</h1>
+  <button class="refresh-btn" id="refresh-btn" onclick="refreshData()">Pull Fresh Data</button>
+</div>
 <div class="subtitle" id="subtitle"></div>
 
 <div class="tab-bar" id="tab-bar" style="display:none;">
@@ -339,6 +410,7 @@ HTML_PAGE = r"""<!DOCTYPE html>
       <canvas id="luStageChart"></canvas>
     </div>
   </div>
+  <div class="lu-schedule" id="lu-schedule" style="display:none;"></div>
 </div>
 
 <div id="empty-state" class="empty-state" style="display:none;">
@@ -845,6 +917,57 @@ async function loadDashboard() {
         },
       },
     });
+    // Review schedule table
+    if (lu.review_schedule && lu.review_schedule.length > 0) {
+      const schedDiv = document.getElementById('lu-schedule');
+      schedDiv.style.display = 'block';
+
+      const stageColors = {
+        'Apprentice I': '#ce93d8', 'Apprentice II': '#ba68c8',
+        'Apprentice III': '#ab47bc', 'Apprentice IV': '#9c27b0',
+        'Guru I': '#00bcd4', 'Guru II': '#0097a7',
+      };
+
+      // Always show all apprentice stages
+      const sortedStages = ['Apprentice I','Apprentice II','Apprentice III','Apprentice IV'];
+
+      const today = new Date().toISOString().slice(0, 10);
+      let rows = '';
+      lu.review_schedule.forEach(d => {
+        const isToday = d.day === today;
+        const dayLabel = isToday ? 'Today' :
+          d.day_offset === 1 ? 'Tomorrow' :
+          new Date(d.day + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+        const cls = isToday ? ' class="today"' : '';
+
+        let stageCells = '';
+        sortedStages.forEach(stage => {
+          const count = d.stages[stage] || 0;
+          const color = stageColors[stage] || '#888';
+          if (count > 0) {
+            stageCells += `<td><span class="stage-pill" style="background:${color}33;color:${color}">${count}</span></td>`;
+          } else {
+            stageCells += '<td style="color:#555">—</td>';
+          }
+        });
+
+        rows += `<tr${cls}><td>${dayLabel}</td>${stageCells}<td style="font-weight:bold">${d.total || 0}</td></tr>`;
+      });
+
+      const stageHeaders = sortedStages.map(s => {
+        const short = s.replace('Apprentice ', 'App ');
+        return `<th>${short}</th>`;
+      }).join('');
+
+      schedDiv.innerHTML = `
+        <h4>Upcoming Reviews <span style="font-weight:normal;color:#666;font-size:0.85em">— current level kanji only, does not include vocab or prior levels</span></h4>
+        <table>
+          <thead><tr><th>Day</th>${stageHeaders}<th>Total</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      `;
+    }
+
   } else if (lu && lu.status === 'ready') {
     const panel = document.getElementById('level-up-panel');
     panel.style.display = 'block';
@@ -1095,6 +1218,30 @@ async function loadDashboard() {
   loadCohortView(snaps);
 }
 
+async function refreshData() {
+  const btn = document.getElementById('refresh-btn');
+  const origText = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Pulling...';
+
+  try {
+    const resp = await fetch('/api/refresh', { method: 'POST' });
+    const data = await resp.json();
+    if (data.ok) {
+      btn.innerHTML = 'Done!';
+      setTimeout(() => location.reload(), 500);
+    } else {
+      btn.innerHTML = 'Error';
+      console.error('Refresh failed:', data.error);
+      setTimeout(() => { btn.innerHTML = origText; btn.disabled = false; }, 3000);
+    }
+  } catch (err) {
+    btn.innerHTML = 'Error';
+    console.error('Refresh error:', err);
+    setTimeout(() => { btn.innerHTML = origText; btn.disabled = false; }, 3000);
+  }
+}
+
 loadDashboard();
 </script>
 </body>
@@ -1104,6 +1251,27 @@ loadDashboard();
 @app.route("/")
 def index():
     return HTML_PAGE
+
+
+@app.route("/api/refresh", methods=["POST"])
+def api_refresh():
+    """Run the tracker to pull fresh data from WaniKani."""
+    tracker_path = os.path.join(PROJECT_ROOT, "wanikani_tracker.py")
+    try:
+        result = subprocess.run(
+            ["python3", tracker_path],
+            cwd=PROJECT_ROOT,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        if result.returncode != 0:
+            return jsonify({"ok": False, "error": result.stderr or "Tracker failed"}), 500
+        return jsonify({"ok": True})
+    except subprocess.TimeoutExpired:
+        return jsonify({"ok": False, "error": "Tracker timed out"}), 504
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 @app.route("/api/history")

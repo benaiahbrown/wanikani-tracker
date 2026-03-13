@@ -475,6 +475,37 @@ def compute_level_up_estimate(user_level: int, assignments: list[dict],
         name = SRS_STAGE_NAMES.get(s, f"Stage {s}")
         stage_counts[name] = stage_counts.get(name, 0) + 1
 
+    # Build 5-day review schedule: group non-guru items by day and SRS stage
+    review_schedule = []
+    for day_offset in range(5):
+        day_start = now + datetime.timedelta(days=day_offset)
+        day_end = now + datetime.timedelta(days=day_offset + 1)
+        day_label = day_start.strftime("%Y-%m-%d")
+        day_items = {"day": day_label, "day_offset": day_offset}
+        stage_buckets = {}
+        for it in items:
+            if it["srs_stage"] >= 5:
+                continue  # already guru
+            avail = it["available_at"]
+            if avail and day_start <= avail < day_end:
+                sname = SRS_STAGE_NAMES.get(it["srs_stage"], f"Stage {it['srs_stage']}")
+                stage_buckets[sname] = stage_buckets.get(sname, 0) + 1
+        # Also count items with no available_at or already available (past due)
+        if day_offset == 0:
+            for it in items:
+                if it["srs_stage"] >= 5:
+                    continue
+                avail = it["available_at"]
+                if avail and avail <= now:
+                    sname = SRS_STAGE_NAMES.get(it["srs_stage"], f"Stage {it['srs_stage']}")
+                    stage_buckets[sname] = stage_buckets.get(sname, 0) + 1
+                elif not avail and it["srs_stage"] > 0:
+                    sname = SRS_STAGE_NAMES.get(it["srs_stage"], f"Stage {it['srs_stage']}")
+                    stage_buckets[sname] = stage_buckets.get(sname, 0) + 1
+        day_items["stages"] = stage_buckets
+        day_items["total"] = sum(stage_buckets.values())
+        review_schedule.append(day_items)
+
     return {
         "status": "in_progress",
         "total_kanji": total_kanji,
@@ -490,6 +521,7 @@ def compute_level_up_estimate(user_level: int, assignments: list[dict],
             hours=level_up_hours / accuracy_multiplier)).isoformat(),
         "realistic_date": level_up_date.isoformat(),
         "items": estimates[:still_needed],  # the bottleneck items
+        "review_schedule": review_schedule,
     }
 
 
