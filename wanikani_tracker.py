@@ -261,7 +261,8 @@ def compute_accuracy(review_stats: list[dict]) -> dict:
     }
 
 
-def compute_pace(level_progressions: list[dict]) -> dict:
+def compute_pace(level_progressions: list[dict],
+                  start_date: datetime.date | None = None) -> dict:
     completed = []
     for lp in level_progressions:
         d = lp["data"]
@@ -269,6 +270,11 @@ def compute_pace(level_progressions: list[dict]) -> dict:
         passed = d.get("passed_at")
         if started and passed:
             start_dt = datetime.datetime.fromisoformat(started.replace("Z", "+00:00"))
+            # For Level 1, use the configured start date if provided
+            if d["level"] == 1 and start_date is not None:
+                start_dt = datetime.datetime.combine(
+                    start_date, datetime.time.min,
+                    tzinfo=start_dt.tzinfo)
             pass_dt = datetime.datetime.fromisoformat(passed.replace("Z", "+00:00"))
             days = (pass_dt - start_dt).total_seconds() / 86400
             completed.append({"level": d["level"], "days": round(days, 1)})
@@ -1037,12 +1043,23 @@ def main():
             start_date = today
     days_studied = (today - start_date).days
 
+    # Compute days at current level from level progressions
+    days_at_current_level = 0
+    for lp in level_progs:
+        d = lp["data"]
+        if d["level"] == user["level"] and d.get("started_at") and not d.get("passed_at"):
+            started_dt = datetime.datetime.fromisoformat(
+                d["started_at"].replace("Z", "+00:00"))
+            days_at_current_level = round(
+                (datetime.datetime.now(datetime.timezone.utc) - started_dt).total_seconds() / 86400, 1)
+            break
+
     console.print("Analyzing...")
     srs = compute_srs_distribution(assignments)
     accuracy = compute_accuracy(review_stats)
     vocab_srs = compute_srs_distribution(vocab_assignments)
     vocab_accuracy = compute_accuracy(vocab_review_stats)
-    pace = compute_pace(level_progs)
+    pace = compute_pace(level_progs, start_date=start_date)
     jlpt = compute_jlpt_coverage(assignments, subjects)
     level_up = compute_level_up_estimate(user["level"], assignments, subjects, accuracy)
     predictions = compute_predictions(user["level"], pace, jlpt, days_studied)
@@ -1054,6 +1071,7 @@ def main():
         "date": today.isoformat(),
         "level": user["level"],
         "days_studied": days_studied,
+        "days_at_current_level": days_at_current_level,
         "kanji_learned": srs["learned"],
         "kanji_in_progress": srs["in_progress"],
         "srs": srs,
@@ -1074,6 +1092,7 @@ def main():
         output = {
             "user_level": user["level"],
             "days_studied": days_studied,
+            "days_at_current_level": days_at_current_level,
             "srs": srs,
             "accuracy": accuracy,
             "vocab_srs": vocab_srs,

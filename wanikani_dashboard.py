@@ -848,6 +848,7 @@ async function loadDashboard() {
     <div class="stat-card"><div class="value" style="color:#ab47bc">${latest.vocab_learned || 0}</div><div class="label">Vocab Learned</div></div>
     <div class="stat-card"><div class="value green">${latest.accuracy.overall_pct.toFixed(1)}%</div><div class="label">Overall Accuracy</div></div>
     <div class="stat-card"><div class="value yellow">${latest.days_studied}</div><div class="label">Days Studied</div></div>
+    <div class="stat-card"><div class="value yellow">${latest.days_at_current_level || 0}</div><div class="label">Days at Current Level</div></div>
   `;
   document.getElementById('summary-bar').innerHTML = summaryHTML;
 
