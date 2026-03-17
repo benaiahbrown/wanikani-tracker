@@ -18,6 +18,10 @@ import statistics
 import sys
 from collections import defaultdict
 
+# Add Japanese_deck/tools to path for JLPT kanji lists
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "Japanese_deck", "tools"))
+from jlpt_kanji_lists import JLPT_LEVELS, get_level
+
 import requests
 from dotenv import load_dotenv
 from rich.console import Console
@@ -42,14 +46,6 @@ def _parse_start_date() -> datetime.date:
         return datetime.date.fromisoformat(val)
     return None
 
-# WaniKani level thresholds for approximate JLPT coverage
-JLPT_LEVEL_RANGES = {
-    "N5": (1, 10),
-    "N4": (11, 16),
-    "N3": (17, 35),
-    "N2": (36, 48),
-    "N1": (49, 60),
-}
 JLPT_LEVEL_TARGETS = {"N5": 10, "N4": 16, "N3": 35, "N2": 48, "N1": 60}
 
 SRS_STAGE_NAMES = {
@@ -302,39 +298,32 @@ def compute_pace(level_progressions: list[dict],
 
 
 def compute_jlpt_coverage(assignments: list[dict], subjects: list[dict]) -> dict:
-    """Map each kanji to a JLPT level via its WaniKani level, count learned."""
-    # Build subject_id -> WK level map
-    subject_level_map = {}
+    """Match each kanji against actual JLPT lists to compute coverage."""
+    # Build subject_id -> kanji character map
+    subject_char_map = {}
     for s in subjects:
-        subject_level_map[s["id"]] = s["data"]["level"]
+        subject_char_map[s["id"]] = s["data"]["characters"]
 
-    # Assign each kanji to a JLPT bucket based on WK level
-    jlpt_counts = {}
-    for jlpt, (lo, hi) in JLPT_LEVEL_RANGES.items():
-        jlpt_counts[jlpt] = {"total": 0, "learned": 0, "in_progress": 0}
+    # Set totals from actual JLPT lists
+    jlpt_counts = {
+        level: {"total": len(kanji_set), "learned": 0, "in_progress": 0}
+        for level, kanji_set in JLPT_LEVELS.items()
+    }
 
-    # Count total kanji per JLPT level from subjects
-    for s in subjects:
-        wk_level = s["data"]["level"]
-        for jlpt, (lo, hi) in JLPT_LEVEL_RANGES.items():
-            if lo <= wk_level <= hi:
-                jlpt_counts[jlpt]["total"] += 1
-                break
-
-    # Count user progress from assignments
+    # Count user progress by looking up each assignment's kanji in JLPT lists
     for a in assignments:
         sid = a["data"]["subject_id"]
-        wk_level = subject_level_map.get(sid)
-        if wk_level is None:
+        char = subject_char_map.get(sid)
+        if not char:
             continue
+        jlpt_level = get_level(char)
+        if not jlpt_level:
+            continue  # kanji not in any JLPT list
         stage = a["data"]["srs_stage"]
-        for jlpt, (lo, hi) in JLPT_LEVEL_RANGES.items():
-            if lo <= wk_level <= hi:
-                if stage >= 5:  # Guru+
-                    jlpt_counts[jlpt]["learned"] += 1
-                elif stage >= 1:
-                    jlpt_counts[jlpt]["in_progress"] += 1
-                break
+        if stage >= 5:  # Guru+
+            jlpt_counts[jlpt_level]["learned"] += 1
+        elif stage >= 1:
+            jlpt_counts[jlpt_level]["in_progress"] += 1
 
     # Compute percentages
     for jlpt in jlpt_counts:
