@@ -588,6 +588,7 @@ def compute_all_reviews_schedule(all_assignments: list[dict]) -> list[dict]:
         day_label = day_start.strftime("%Y-%m-%d")
         stage_buckets = {}
         type_buckets = {}
+        kanji_stage_buckets = {}
 
         for a in all_assignments:
             stage = a["data"]["srs_stage"]
@@ -613,13 +614,18 @@ def compute_all_reviews_schedule(all_assignments: list[dict]) -> list[dict]:
                 stage_buckets[sname] = stage_buckets.get(sname, 0) + 1
                 stype = a.get("_subject_type", "unknown")
                 type_buckets[stype] = type_buckets.get(stype, 0) + 1
+                if stype == "kanji":
+                    kanji_stage_buckets[sname] = kanji_stage_buckets.get(sname, 0) + 1
 
         total = sum(type_buckets.values())
+        kanji_total = sum(kanji_stage_buckets.values())
         schedule.append({
             "day": day_label,
             "day_offset": day_offset,
             "stages": stage_buckets,
             "types": type_buckets,
+            "kanji_stages": kanji_stage_buckets,
+            "kanji_total": kanji_total,
             "total": total,
         })
 

@@ -1029,12 +1029,37 @@ async function loadDashboard() {
         `<th style="color:${stageColors[s]}">${stageShort[s]}</th>`
       ).join('');
 
+      // --- Kanji by SRS Stage table ---
+      const kanjiActiveStages = new Set();
+      allRevSched.forEach(d => {
+        if (d.kanji_stages) Object.keys(d.kanji_stages).forEach(s => { if (d.kanji_stages[s] > 0) kanjiActiveStages.add(s); });
+      });
+      const visibleKanjiStages = stageOrder.filter(s => kanjiActiveStages.has(s));
+
+      let kanjiStageRows = '';
+      allRevSched.forEach(d => {
+        const cls = d.day === today ? ' class="today"' : '';
+        let cells = '';
+        visibleKanjiStages.forEach(stage => {
+          const count = (d.kanji_stages && d.kanji_stages[stage]) || 0;
+          const color = stageColors[stage];
+          cells += count > 0
+            ? `<td><span class="stage-pill" style="background:${color}33;color:${color}">${count}</span></td>`
+            : '<td style="color:#555">\u2014</td>';
+        });
+        kanjiStageRows += `<tr${cls}><td>${dayLabel(d)}</td>${cells}<td style="font-weight:bold">${d.kanji_total || 0}</td></tr>`;
+      });
+      const kanjiStageHeaders = visibleKanjiStages.map(s =>
+        `<th style="color:${stageColors[s]}">${stageShort[s]}</th>`
+      ).join('');
+
       // --- Render with toggle ---
       schedDiv.innerHTML = `
         <h4>Upcoming Reviews
           <span class="review-toggle" id="review-toggle">
             <button class="active" data-view="type">By Type</button>
             <button data-view="stage">By SRS Stage</button>
+            <button data-view="kanji">Kanji by Stage</button>
           </span>
         </h4>
         <div id="review-table-type">
@@ -1049,6 +1074,12 @@ async function loadDashboard() {
             <tbody>${stageRows}</tbody>
           </table>
         </div>
+        <div id="review-table-kanji" style="display:none">
+          <table>
+            <thead><tr><th>Day</th>${kanjiStageHeaders}<th>Total</th></tr></thead>
+            <tbody>${kanjiStageRows}</tbody>
+          </table>
+        </div>
       `;
 
       // Toggle behavior
@@ -1058,6 +1089,7 @@ async function loadDashboard() {
         const view = btn.dataset.view;
         document.getElementById('review-table-type').style.display = view === 'type' ? '' : 'none';
         document.getElementById('review-table-stage').style.display = view === 'stage' ? '' : 'none';
+        document.getElementById('review-table-kanji').style.display = view === 'kanji' ? '' : 'none';
         document.querySelectorAll('#review-toggle button').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
       });
