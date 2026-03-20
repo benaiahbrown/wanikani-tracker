@@ -340,11 +340,13 @@ def compute_jlpt_coverage(assignments: list[dict], subjects: list[dict]) -> dict
 
 
 def compute_level_up_estimate(user_level: int, assignments: list[dict],
-                              subjects: list[dict], accuracy: dict) -> dict:
+                              subjects: list[dict], accuracy: dict,
+                              radical_assignments: list[dict] | None = None) -> dict:
     """Estimate time to next level based on current-level kanji SRS spread.
 
     WaniKani requires 90% of a level's kanji to reach Guru (stage 5+) to level up.
     Uses each item's SRS stage and available_at to project when the threshold is met.
+    Accounts for locked kanji by estimating when prerequisite radicals will reach Guru.
     """
     # Minimum hours between SRS stages (assuming correct answer)
     SRS_INTERVALS_HOURS = {
@@ -411,6 +413,33 @@ def compute_level_up_estimate(user_level: int, assignments: list[dict],
     # Simplified: multiply ideal time by 1/advance_prob
     accuracy_multiplier = 1.0 / advance_prob if advance_prob > 0 else 2.0
 
+    # Build radical SRS lookup for estimating when locked kanji will unlock
+    radical_srs = {}
+    if radical_assignments:
+        for ra in radical_assignments:
+            rsid = ra["data"]["subject_id"]
+            rstage = ra["data"]["srs_stage"]
+            ravail_str = ra["data"].get("available_at")
+            ravail = None
+            if ravail_str:
+                ravail = datetime.datetime.fromisoformat(
+                    ravail_str.replace("Z", "+00:00"))
+            radical_srs[rsid] = {"srs_stage": rstage, "available_at": ravail}
+
+    def _hours_to_guru(stage, available_at):
+        """Estimate hours for an item at a given SRS stage to reach Guru."""
+        if stage >= 5:
+            return 0.0
+        ideal = sum(SRS_INTERVALS_HOURS[s] for s in range(max(stage, 1), 5))
+        if stage == 0:
+            ideal = sum(SRS_INTERVALS_HOURS.values())
+        realistic = ideal * accuracy_multiplier
+        if available_at and available_at > now:
+            wait = (available_at - now).total_seconds() / 3600
+            remaining = sum(SRS_INTERVALS_HOURS[s] for s in range(max(stage + 1, 1), 5))
+            realistic = wait + remaining * accuracy_multiplier
+        return realistic
+
     # For each non-guru item, estimate hours until it reaches stage 5
     estimates = []
     for it in items:
@@ -448,13 +477,32 @@ def compute_level_up_estimate(user_level: int, assignments: list[dict],
             "hours_to_guru": round(realistic_hours, 1),
         })
 
-    # Items not yet assigned (locked) — assume they start from scratch once unlocked
-    for _ in range(not_started):
-        full_path_hours = sum(SRS_INTERVALS_HOURS.values()) * accuracy_multiplier
+    # Items not yet assigned (locked) — estimate unlock time from radical prerequisites
+    assigned_ids = {it["subject_id"] for it in items}
+    locked_kanji_ids = current_level_kanji_ids - assigned_ids
+    subject_by_id = {s["id"]: s for s in subjects}
+    full_path_hours = sum(SRS_INTERVALS_HOURS.values()) * accuracy_multiplier
+
+    for kid in locked_kanji_ids:
+        unlock_wait_hours = 0.0
+        subj = subject_by_id.get(kid)
+        component_ids = subj["data"].get("component_subject_ids", []) if subj else []
+
+        if radical_srs and component_ids:
+            for cid in component_ids:
+                rad_info = radical_srs.get(cid)
+                if rad_info:
+                    rad_hours = _hours_to_guru(
+                        rad_info["srs_stage"], rad_info["available_at"])
+                else:
+                    # Radical has no assignment — assume full path from scratch
+                    rad_hours = full_path_hours
+                unlock_wait_hours = max(unlock_wait_hours, rad_hours)
+
         estimates.append({
-            "subject_id": None,
+            "subject_id": kid,
             "srs_stage": -1,
-            "hours_to_guru": round(full_path_hours, 1),
+            "hours_to_guru": round(unlock_wait_hours + full_path_hours, 1),
         })
 
     # Sort by time to guru — the level-up happens when the Nth fastest item hits guru
@@ -1110,7 +1158,8 @@ def main():
     radical_srs = compute_srs_distribution(radical_assignments)
     pace = compute_pace(level_progs, start_date=start_date)
     jlpt = compute_jlpt_coverage(assignments, subjects)
-    level_up = compute_level_up_estimate(user["level"], assignments, subjects, accuracy)
+    level_up = compute_level_up_estimate(user["level"], assignments, subjects, accuracy,
+                                         radical_assignments=radical_assignments)
     predictions = compute_predictions(user["level"], pace, jlpt, days_studied)
     all_review_stats = review_stats + vocab_review_stats
     # Tag each assignment with its subject type for the reviews schedule
@@ -1126,6 +1175,7 @@ def main():
 
     snapshot = {
         "date": today.isoformat(),
+        "polled_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "level": user["level"],
         "days_studied": days_studied,
         "days_at_current_level": days_at_current_level,

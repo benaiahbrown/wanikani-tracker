@@ -239,6 +239,30 @@ HTML_PAGE = r"""<!DOCTYPE html>
     font-size: 0.8em;
     margin: 1px 3px;
   }
+  .review-toggle {
+    display: inline-flex;
+    background: rgba(255,255,255,0.08);
+    border-radius: 8px;
+    margin-left: 12px;
+    vertical-align: middle;
+  }
+  .review-toggle button {
+    background: none;
+    border: none;
+    color: #777;
+    font-size: 0.78em;
+    padding: 3px 10px;
+    cursor: pointer;
+    border-radius: 8px;
+    transition: all 0.2s;
+  }
+  .review-toggle button.active {
+    background: rgba(233,69,96,0.25);
+    color: #e94560;
+  }
+  .review-toggle button:hover:not(.active) {
+    color: #bbb;
+  }
   .donut-card {
     max-width: 1400px;
     margin: 0 auto 20px auto;
@@ -874,8 +898,9 @@ async function loadDashboard() {
   const dates = snaps.map(s => s.date);
 
   // Summary bar
+  const polledInfo = latest.polled_at ? ` (polled ${latest.polled_at})` : '';
   document.getElementById('subtitle').textContent =
-    `${snaps.length} snapshot${snaps.length > 1 ? 's' : ''} recorded | Latest: ${latest.date}`;
+    `${snaps.length} snapshot${snaps.length > 1 ? 's' : ''} recorded | Latest: ${latest.date}${polledInfo}`;
 
   const summaryHTML = `
     <div class="stat-card"><div class="value accent">Lv ${latest.level}</div><div class="label">Current Level</div></div>
@@ -926,12 +951,22 @@ async function loadDashboard() {
       </div>
     `;
 
-    // Upcoming reviews table (all items, by type)
+    // Upcoming reviews tables (by type + by SRS stage, with toggle)
     const allRevSched = latest.all_reviews_schedule;
     if (allRevSched && allRevSched.length > 0) {
       const schedDiv = document.getElementById('lu-schedule');
       schedDiv.style.display = 'block';
 
+      const today = new Date().toISOString().slice(0, 10);
+
+      // Helper to format day labels
+      function dayLabel(d) {
+        if (d.day === today) return 'Today';
+        if (d.day_offset === 1) return 'Tomorrow';
+        return new Date(d.day + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+      }
+
+      // --- By Type table ---
       const typeColors = { radical: '#00aaff', kanji: '#ff00aa', vocabulary: '#a055ff' };
       const typeLabels = { radical: 'Radical', kanji: 'Kanji', vocabulary: 'Vocab' };
       const typeOrder = ['radical', 'kanji', 'vocabulary'];
@@ -942,40 +977,90 @@ async function loadDashboard() {
       });
       const visibleTypes = typeOrder.filter(t => activeTypes.has(t));
 
-      const today = new Date().toISOString().slice(0, 10);
-      let rows = '';
+      let typeRows = '';
       allRevSched.forEach(d => {
-        const isToday = d.day === today;
-        const dayLabel = isToday ? 'Today' :
-          d.day_offset === 1 ? 'Tomorrow' :
-          new Date(d.day + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
-        const cls = isToday ? ' class="today"' : '';
-
+        const cls = d.day === today ? ' class="today"' : '';
         let cells = '';
         visibleTypes.forEach(type => {
           const count = (d.types && d.types[type]) || 0;
           const color = typeColors[type];
-          if (count > 0) {
-            cells += `<td><span class="stage-pill" style="background:${color}33;color:${color}">${count}</span></td>`;
-          } else {
-            cells += '<td style="color:#555">—</td>';
-          }
+          cells += count > 0
+            ? `<td><span class="stage-pill" style="background:${color}33;color:${color}">${count}</span></td>`
+            : '<td style="color:#555">\u2014</td>';
         });
-
-        rows += `<tr${cls}><td>${dayLabel}</td>${cells}<td style="font-weight:bold">${d.total || 0}</td></tr>`;
+        typeRows += `<tr${cls}><td>${dayLabel(d)}</td>${cells}<td style="font-weight:bold">${d.total || 0}</td></tr>`;
       });
-
-      const headers = visibleTypes.map(t =>
+      const typeHeaders = visibleTypes.map(t =>
         `<th style="color:${typeColors[t]}">${typeLabels[t]}</th>`
       ).join('');
 
+      // --- By SRS Stage table ---
+      const stageOrder = ['Apprentice I', 'Apprentice II', 'Apprentice III', 'Apprentice IV', 'Guru I', 'Guru II', 'Master', 'Enlightened'];
+      const stageColors = {
+        'Apprentice I': '#e91e90', 'Apprentice II': '#e91e90', 'Apprentice III': '#e91e90', 'Apprentice IV': '#e91e90',
+        'Guru I': '#00cccc', 'Guru II': '#00cccc',
+        'Master': '#4466ff', 'Enlightened': '#ffcc00'
+      };
+      const stageShort = {
+        'Apprentice I': 'App I', 'Apprentice II': 'App II', 'Apprentice III': 'App III', 'Apprentice IV': 'App IV',
+        'Guru I': 'Guru I', 'Guru II': 'Guru II', 'Master': 'Master', 'Enlightened': 'Enl'
+      };
+
+      const activeStages = new Set();
+      allRevSched.forEach(d => {
+        if (d.stages) Object.keys(d.stages).forEach(s => { if (d.stages[s] > 0) activeStages.add(s); });
+      });
+      const visibleStages = stageOrder.filter(s => activeStages.has(s));
+
+      let stageRows = '';
+      allRevSched.forEach(d => {
+        const cls = d.day === today ? ' class="today"' : '';
+        let cells = '';
+        visibleStages.forEach(stage => {
+          const count = (d.stages && d.stages[stage]) || 0;
+          const color = stageColors[stage];
+          cells += count > 0
+            ? `<td><span class="stage-pill" style="background:${color}33;color:${color}">${count}</span></td>`
+            : '<td style="color:#555">\u2014</td>';
+        });
+        stageRows += `<tr${cls}><td>${dayLabel(d)}</td>${cells}<td style="font-weight:bold">${d.total || 0}</td></tr>`;
+      });
+      const stageHeaders = visibleStages.map(s =>
+        `<th style="color:${stageColors[s]}">${stageShort[s]}</th>`
+      ).join('');
+
+      // --- Render with toggle ---
       schedDiv.innerHTML = `
-        <h4>Upcoming Reviews <span style="font-weight:normal;color:#666;font-size:0.85em">— all items</span></h4>
-        <table>
-          <thead><tr><th>Day</th>${headers}<th>Total</th></tr></thead>
-          <tbody>${rows}</tbody>
-        </table>
+        <h4>Upcoming Reviews
+          <span class="review-toggle" id="review-toggle">
+            <button class="active" data-view="type">By Type</button>
+            <button data-view="stage">By SRS Stage</button>
+          </span>
+        </h4>
+        <div id="review-table-type">
+          <table>
+            <thead><tr><th>Day</th>${typeHeaders}<th>Total</th></tr></thead>
+            <tbody>${typeRows}</tbody>
+          </table>
+        </div>
+        <div id="review-table-stage" style="display:none">
+          <table>
+            <thead><tr><th>Day</th>${stageHeaders}<th>Total</th></tr></thead>
+            <tbody>${stageRows}</tbody>
+          </table>
+        </div>
       `;
+
+      // Toggle behavior
+      document.getElementById('review-toggle').addEventListener('click', e => {
+        const btn = e.target.closest('button');
+        if (!btn) return;
+        const view = btn.dataset.view;
+        document.getElementById('review-table-type').style.display = view === 'type' ? '' : 'none';
+        document.getElementById('review-table-stage').style.display = view === 'stage' ? '' : 'none';
+        document.querySelectorAll('#review-toggle button').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+      });
     }
 
   } else if (lu && lu.status === 'ready') {
