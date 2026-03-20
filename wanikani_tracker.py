@@ -136,6 +136,11 @@ def fetch_assignments_vocabulary() -> list[dict]:
     return wanikani_get_all("/assignments?subject_types=vocabulary")
 
 
+def fetch_assignments_radical() -> list[dict]:
+    console.print("  Fetching radical assignments...", end="")
+    return wanikani_get_all("/assignments?subject_types=radical")
+
+
 def fetch_review_statistics_vocabulary() -> list[dict]:
     console.print("  Fetching vocabulary review statistics...", end="")
     return wanikani_get_all("/review_statistics?subject_types=vocabulary")
@@ -518,6 +523,59 @@ def compute_level_up_estimate(user_level: int, assignments: list[dict],
         "items": estimates[:still_needed],  # the bottleneck items
         "review_schedule": review_schedule,
     }
+
+
+def compute_all_reviews_schedule(all_assignments: list[dict]) -> list[dict]:
+    """Build a 5-day review schedule from ALL assignments (radical + kanji + vocab, all levels).
+
+    Each assignment must have a "_subject_type" key (radical/kanji/vocabulary).
+    Returns a list of dicts with both SRS stage and item type breakdowns.
+    """
+    now = datetime.datetime.now(datetime.timezone.utc)
+    schedule = []
+
+    for day_offset in range(5):
+        day_start = now + datetime.timedelta(days=day_offset)
+        day_end = now + datetime.timedelta(days=day_offset + 1)
+        day_label = day_start.strftime("%Y-%m-%d")
+        stage_buckets = {}
+        type_buckets = {}
+
+        for a in all_assignments:
+            stage = a["data"]["srs_stage"]
+            if stage <= 0 or stage >= 9:
+                continue  # skip Initiate (no review) and Burned (done)
+
+            available_at_str = a["data"].get("available_at")
+            counted = False
+
+            if not available_at_str:
+                if day_offset == 0 and stage > 0:
+                    counted = True
+            else:
+                avail = datetime.datetime.fromisoformat(
+                    available_at_str.replace("Z", "+00:00"))
+                if day_start <= avail < day_end:
+                    counted = True
+                elif day_offset == 0 and avail <= now:
+                    counted = True
+
+            if counted:
+                sname = SRS_STAGE_NAMES.get(stage, f"Stage {stage}")
+                stage_buckets[sname] = stage_buckets.get(sname, 0) + 1
+                stype = a.get("_subject_type", "unknown")
+                type_buckets[stype] = type_buckets.get(stype, 0) + 1
+
+        total = sum(type_buckets.values())
+        schedule.append({
+            "day": day_label,
+            "day_offset": day_offset,
+            "stages": stage_buckets,
+            "types": type_buckets,
+            "total": total,
+        })
+
+    return schedule
 
 
 def compute_predictions(user_level: int, pace: dict, jlpt_coverage: dict,
@@ -1019,6 +1077,7 @@ def main():
     review_stats = fetch_review_statistics_kanji()
     vocab_assignments = fetch_assignments_vocabulary()
     vocab_review_stats = fetch_review_statistics_vocabulary()
+    radical_assignments = fetch_assignments_radical()
     level_progs = fetch_level_progressions()
     subjects = fetch_subjects_kanji(refresh=args.refresh)
 
@@ -1048,13 +1107,22 @@ def main():
     accuracy = compute_accuracy(review_stats)
     vocab_srs = compute_srs_distribution(vocab_assignments)
     vocab_accuracy = compute_accuracy(vocab_review_stats)
+    radical_srs = compute_srs_distribution(radical_assignments)
     pace = compute_pace(level_progs, start_date=start_date)
     jlpt = compute_jlpt_coverage(assignments, subjects)
     level_up = compute_level_up_estimate(user["level"], assignments, subjects, accuracy)
     predictions = compute_predictions(user["level"], pace, jlpt, days_studied)
     all_review_stats = review_stats + vocab_review_stats
-    all_assignments = assignments + vocab_assignments
+    # Tag each assignment with its subject type for the reviews schedule
+    for a in assignments:
+        a["_subject_type"] = "kanji"
+    for a in vocab_assignments:
+        a["_subject_type"] = "vocabulary"
+    for a in radical_assignments:
+        a["_subject_type"] = "radical"
+    all_assignments = assignments + vocab_assignments + radical_assignments
     sessions_streaks = compute_sessions_and_streaks(all_review_stats, all_assignments)
+    all_reviews = compute_all_reviews_schedule(all_assignments)
 
     snapshot = {
         "date": today.isoformat(),
@@ -1069,11 +1137,13 @@ def main():
         "vocab_in_progress": vocab_srs["in_progress"],
         "vocab_srs": vocab_srs,
         "vocab_accuracy": vocab_accuracy,
+        "radical_srs": radical_srs,
         "pace": pace,
         "jlpt_coverage": jlpt,
         "level_up": level_up,
         "predictions": predictions,
         "sessions_streaks": sessions_streaks,
+        "all_reviews_schedule": all_reviews,
     }
     save_snapshot(snapshot)
 
@@ -1086,11 +1156,13 @@ def main():
             "accuracy": accuracy,
             "vocab_srs": vocab_srs,
             "vocab_accuracy": vocab_accuracy,
+            "radical_srs": radical_srs,
             "pace": pace,
             "jlpt_coverage": jlpt,
             "level_up": level_up,
             "predictions": predictions,
             "sessions_streaks": sessions_streaks,
+            "all_reviews_schedule": all_reviews,
         }
         print(json.dumps(output, indent=2, default=str))
     else:

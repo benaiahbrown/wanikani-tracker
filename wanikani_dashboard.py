@@ -204,13 +204,6 @@ HTML_PAGE = r"""<!DOCTYPE html>
     font-size: 0.8em;
     color: #bbb;
   }
-  .lu-stages {
-    min-width: 180px;
-  }
-  .lu-stages canvas {
-    max-width: 180px;
-    max-height: 180px;
-  }
   .lu-schedule {
     margin-top: 16px;
     width: 100%;
@@ -245,6 +238,41 @@ HTML_PAGE = r"""<!DOCTYPE html>
     border-radius: 10px;
     font-size: 0.8em;
     margin: 1px 3px;
+  }
+  .donut-card {
+    max-width: 1400px;
+    margin: 0 auto 20px auto;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 12px;
+    padding: 20px 28px;
+  }
+  .donut-card h3 {
+    font-size: 1.1em;
+    color: #fff;
+    margin-bottom: 16px;
+  }
+  .donut-row {
+    display: flex;
+    justify-content: center;
+    gap: 24px;
+    flex-wrap: wrap;
+  }
+  .donut-item {
+    text-align: center;
+    max-width: 180px;
+    flex: 1;
+    min-width: 140px;
+  }
+  .donut-item canvas {
+    max-width: 160px;
+    max-height: 160px;
+    margin: 0 auto;
+  }
+  .donut-label {
+    margin-top: 6px;
+    font-size: 0.85em;
+    color: #bbb;
   }
   .empty-state {
     text-align: center;
@@ -406,11 +434,18 @@ HTML_PAGE = r"""<!DOCTYPE html>
       </div>
       <div class="lu-estimates" id="lu-estimates"></div>
     </div>
-    <div class="lu-stages">
-      <canvas id="luStageChart"></canvas>
-    </div>
   </div>
   <div class="lu-schedule" id="lu-schedule" style="display:none;"></div>
+</div>
+
+<div class="donut-card" id="donut-card" style="display:none;">
+  <h3>Item Distribution</h3>
+  <div class="donut-row">
+    <div class="donut-item"><canvas id="donutAllTypes"></canvas><div class="donut-label">All Items</div></div>
+    <div class="donut-item"><canvas id="donutRadical"></canvas><div class="donut-label">Radicals</div></div>
+    <div class="donut-item"><canvas id="donutKanji"></canvas><div class="donut-label">Kanji</div></div>
+    <div class="donut-item"><canvas id="donutVocab"></canvas><div class="donut-label">Vocab</div></div>
+  </div>
 </div>
 
 <div id="empty-state" class="empty-state" style="display:none;">
@@ -891,79 +926,53 @@ async function loadDashboard() {
       </div>
     `;
 
-    // Stage donut chart
-    const stages = lu.stage_counts || {};
-    const stageNames = Object.keys(stages).filter(k => stages[k] > 0);
-    const stageColorMap = {
-      'Initiate': '#616161',
-      'Apprentice I': '#ce93d8', 'Apprentice II': '#ba68c8',
-      'Apprentice III': '#ab47bc', 'Apprentice IV': '#9c27b0',
-      'Guru I': '#00bcd4', 'Guru II': '#0097a7',
-      'Master': '#2196f3', 'Enlightened': '#ffc107', 'Burned': '#424242',
-    };
-    new Chart(document.getElementById('luStageChart'), {
-      type: 'doughnut',
-      data: {
-        labels: stageNames,
-        datasets: [{
-          data: stageNames.map(n => stages[n]),
-          backgroundColor: stageNames.map(n => stageColorMap[n] || '#888'),
-          borderWidth: 0,
-        }],
-      },
-      options: {
-        responsive: true,
-        plugins: {
-          legend: { position: 'bottom', labels: { color: '#ccc', font: { size: 10 }, padding: 6 } },
-        },
-      },
-    });
-    // Review schedule table
-    if (lu.review_schedule && lu.review_schedule.length > 0) {
+    // Upcoming reviews table (all items, by type)
+    const allRevSched = latest.all_reviews_schedule;
+    if (allRevSched && allRevSched.length > 0) {
       const schedDiv = document.getElementById('lu-schedule');
       schedDiv.style.display = 'block';
 
-      const stageColors = {
-        'Apprentice I': '#ce93d8', 'Apprentice II': '#ba68c8',
-        'Apprentice III': '#ab47bc', 'Apprentice IV': '#9c27b0',
-        'Guru I': '#00bcd4', 'Guru II': '#0097a7',
-      };
+      const typeColors = { radical: '#00aaff', kanji: '#ff00aa', vocabulary: '#a055ff' };
+      const typeLabels = { radical: 'Radical', kanji: 'Kanji', vocabulary: 'Vocab' };
+      const typeOrder = ['radical', 'kanji', 'vocabulary'];
 
-      // Always show all apprentice stages
-      const sortedStages = ['Apprentice I','Apprentice II','Apprentice III','Apprentice IV'];
+      const activeTypes = new Set();
+      allRevSched.forEach(d => {
+        if (d.types) Object.keys(d.types).forEach(t => { if (d.types[t] > 0) activeTypes.add(t); });
+      });
+      const visibleTypes = typeOrder.filter(t => activeTypes.has(t));
 
       const today = new Date().toISOString().slice(0, 10);
       let rows = '';
-      lu.review_schedule.forEach(d => {
+      allRevSched.forEach(d => {
         const isToday = d.day === today;
         const dayLabel = isToday ? 'Today' :
           d.day_offset === 1 ? 'Tomorrow' :
           new Date(d.day + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
         const cls = isToday ? ' class="today"' : '';
 
-        let stageCells = '';
-        sortedStages.forEach(stage => {
-          const count = d.stages[stage] || 0;
-          const color = stageColors[stage] || '#888';
+        let cells = '';
+        visibleTypes.forEach(type => {
+          const count = (d.types && d.types[type]) || 0;
+          const color = typeColors[type];
           if (count > 0) {
-            stageCells += `<td><span class="stage-pill" style="background:${color}33;color:${color}">${count}</span></td>`;
+            cells += `<td><span class="stage-pill" style="background:${color}33;color:${color}">${count}</span></td>`;
           } else {
-            stageCells += '<td style="color:#555">—</td>';
+            cells += '<td style="color:#555">—</td>';
           }
         });
 
-        rows += `<tr${cls}><td>${dayLabel}</td>${stageCells}<td style="font-weight:bold">${d.total || 0}</td></tr>`;
+        rows += `<tr${cls}><td>${dayLabel}</td>${cells}<td style="font-weight:bold">${d.total || 0}</td></tr>`;
       });
 
-      const stageHeaders = sortedStages.map(s => {
-        const short = s.replace('Apprentice ', 'App ');
-        return `<th>${short}</th>`;
-      }).join('');
+      const headers = visibleTypes.map(t =>
+        `<th style="color:${typeColors[t]}">${typeLabels[t]}</th>`
+      ).join('');
 
       schedDiv.innerHTML = `
-        <h4>Upcoming Reviews <span style="font-weight:normal;color:#666;font-size:0.85em">— current level kanji only, does not include vocab or prior levels</span></h4>
+        <h4>Upcoming Reviews <span style="font-weight:normal;color:#666;font-size:0.85em">— all items</span></h4>
         <table>
-          <thead><tr><th>Day</th>${stageHeaders}<th>Total</th></tr></thead>
+          <thead><tr><th>Day</th>${headers}<th>Total</th></tr></thead>
           <tbody>${rows}</tbody>
         </table>
       `;
@@ -979,6 +988,67 @@ async function loadDashboard() {
       `  ${lu.already_guru}/${lu.guru_needed} kanji at Guru+`;
     document.getElementById('lu-bar').style.width = '100%';
     document.getElementById('lu-bar-label').textContent = 'Complete!';
+  }
+
+  // Item Distribution donut charts
+  {
+    const donutCard = document.getElementById('donut-card');
+    const radSrs = latest.radical_srs;
+    const kanSrs = latest.srs;
+    const vocSrs = latest.vocab_srs;
+
+    if (radSrs || kanSrs || vocSrs) {
+      donutCard.style.display = 'block';
+
+      const srsColors = {
+        Apprentice: '#ab47bc', Guru: '#00bcd4', Master: '#2196f3',
+        Enlightened: '#ffc107', Burned: '#616161',
+      };
+      const donutOpts = {
+        responsive: true,
+        plugins: {
+          legend: { position: 'bottom', labels: { color: '#ccc', font: { size: 10 }, padding: 6 } },
+        },
+      };
+
+      function makeSrsDonut(canvasId, srsData) {
+        if (!srsData || !srsData.buckets) return;
+        const buckets = srsData.buckets;
+        const names = Object.keys(buckets).filter(k => k !== 'Initiate' && buckets[k] > 0);
+        if (names.length === 0) return;
+        new Chart(document.getElementById(canvasId), {
+          type: 'doughnut',
+          data: {
+            labels: names,
+            datasets: [{ data: names.map(n => buckets[n]), backgroundColor: names.map(n => srsColors[n] || '#888'), borderWidth: 0 }],
+          },
+          options: donutOpts,
+        });
+      }
+
+      // All Items by Type
+      const typeColors = { Radical: '#00aaff', Kanji: '#ff00aa', Vocab: '#a055ff' };
+      const typeTotals = {
+        Radical: radSrs ? radSrs.total : 0,
+        Kanji: kanSrs ? kanSrs.total : 0,
+        Vocab: vocSrs ? vocSrs.total : 0,
+      };
+      const typeNames = Object.keys(typeTotals).filter(k => typeTotals[k] > 0);
+      if (typeNames.length > 0) {
+        new Chart(document.getElementById('donutAllTypes'), {
+          type: 'doughnut',
+          data: {
+            labels: typeNames,
+            datasets: [{ data: typeNames.map(n => typeTotals[n]), backgroundColor: typeNames.map(n => typeColors[n]), borderWidth: 0 }],
+          },
+          options: donutOpts,
+        });
+      }
+
+      makeSrsDonut('donutRadical', radSrs);
+      makeSrsDonut('donutKanji', kanSrs);
+      makeSrsDonut('donutVocab', vocSrs);
+    }
   }
 
   // 1. Level Progress
