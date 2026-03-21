@@ -778,8 +778,8 @@ def compute_sessions_and_streaks(review_stats: list[dict],
         if total_review_days else 0
     )
 
-    # Recent 7-day average
-    today = datetime.date.today()
+    # Recent 7-day average (use UTC to match timestamp grouping above)
+    today = datetime.datetime.now(datetime.timezone.utc).date()
     recent_7d_sessions = []
     for i in range(7):
         d = (today - datetime.timedelta(days=i)).isoformat()
@@ -816,6 +816,9 @@ def compute_sessions_and_streaks(review_stats: list[dict],
                 streak = 1
             prev = cur
         longest_streak = max(longest_streak, streak)
+
+    # Ensure longest is never less than current (can differ due to timezone edge cases in historical data)
+    longest_streak = max(longest_streak, current_streak)
 
     return {
         "sessions_per_day_avg": round(sessions_per_day_avg, 2),

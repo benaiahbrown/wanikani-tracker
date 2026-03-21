@@ -389,12 +389,19 @@ HTML_PAGE = r"""<!DOCTYPE html>
     transition: width 0.5s;
   }
   .gauge-markers {
-    display: flex;
-    justify-content: space-between;
+    position: relative;
     font-size: 0.75em;
     color: #888;
     margin-top: 4px;
+    height: 1.4em;
   }
+  .gauge-markers span {
+    position: absolute;
+    transform: translateX(-50%);
+    white-space: nowrap;
+  }
+  .gauge-markers span:first-child { left: 0; transform: none; }
+  .gauge-markers span:last-child { left: 100%; transform: translateX(-100%); }
   .refresh-btn {
     background: rgba(233,69,96,0.15);
     border: 1px solid #e94560;
@@ -501,7 +508,7 @@ HTML_PAGE = r"""<!DOCTYPE html>
     <div style="color:#bbb;font-size:0.85em;margin-bottom:6px;">Current Streak vs Community</div>
     <div class="gauge-outer"><div class="gauge-inner" id="streak-gauge"></div></div>
     <div class="gauge-markers">
-      <span>0</span><span>Casual (7d)</span><span>Avg (15d)</span><span>Good (30d)</span><span>Dedicated (60d+)</span>
+      <span style="left:0">0</span><span style="left:11.7%">Casual (7d)</span><span style="left:25%">Avg (15d)</span><span style="left:50%">Good (30d)</span><span style="left:100%">Dedicated (60d+)</span>
     </div>
   </div>
 </div>
